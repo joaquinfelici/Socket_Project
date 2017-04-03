@@ -37,7 +37,7 @@ int nc_server_socket;
 struct sockaddr_in nc_client_socket;
 
 /*
- * functions to establish and keep connection
+ * Functions to establish and keep connection
  */
 void create_socket();
 void create_nc_socket();
@@ -47,16 +47,16 @@ void process_command(const char*, char*);
 void create_socket_n(); // Non oriented to conection
 
 /*
- * functions to execute commands sent by client
+ * Functions to execute commands sent by client
  */
 void list();
 void download(int);
 void daily(int);
 void monthly(int);
-void average(); 
+void average(const char*); 
 
 /*
- * function to send the generated file
+ * Function to send the generated file
  */
 void write_file(char*, const char*);
 void send_file(const char*);
@@ -293,6 +293,7 @@ void process_command(const char* buffer_in, char* buffer_out)
 		if(aux != NULL)
 		strcpy(variable, aux);
 		printf(" > Recieved command <promedio> for variable <%s> \n", variable);
+		average(variable);
 	}
 	else
 	{
@@ -578,11 +579,121 @@ void monthly(int station_number)
 //-----------------------------------------------------------------------------------------------------------------
 
 /*
- * @brief 
+ * @brief Calculates the average of the specified variable for every station on the file
+ * @param var the name of the variable whose average we need
  */
-void average()
+void average(const char* var)
 {
+	/*
+	 * We define the position of each field in the CSV line
+	 */
+	#define temperatura 	5
+	#define humedad 		6
+	#define punto			7
+	#define precipitacion 	8	
+	#define velocidad		9
+	#define direccion 		10
+	#define rafaga			11
+	#define presion			12	
+	#define radiacion		13
+	#define suelo			14
 
+	int VARIABLE_INDEX = -1;
+	if(!strcmp(var, "temperatura"))
+		VARIABLE_INDEX = temperatura;
+	else if(!strcmp(var, "humedad"))
+		VARIABLE_INDEX = humedad;
+	else if(!strcmp(var, "punto de rocio"))
+		VARIABLE_INDEX = punto;
+	else if(!strcmp(var, "precipitacion"))
+		VARIABLE_INDEX = precipitacion;
+	else if(!strcmp(var, "velocidad viento"))
+		VARIABLE_INDEX = velocidad;
+	else if(!strcmp(var, "direccion viento"))
+		VARIABLE_INDEX = direccion;
+	else if(!strcmp(var, "rafaga maxima"))
+		VARIABLE_INDEX = rafaga;
+	else if(!strcmp(var, "presion"))
+		VARIABLE_INDEX = presion;
+	else if(!strcmp(var, "radiacion solar"))
+		VARIABLE_INDEX = radiacion;
+	else if(!strcmp(var, "temperatura suelo 1"))
+		VARIABLE_INDEX = suelo;
+	else
+	{
+		printf(" > Average command for unknown variable <%s> \n", var);
+		int n = write(c_new_client_socket, "unknown", SIZE);
+		n = n;
+		return;
+	}
+
+	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
+
+	char file_to_write[SIZE];
+	sprintf(file_to_write, "tmp_average_%s_%d.txt", var, getpid());
+
+    char line[SIZE];
+    char fields[SIZE];
+
+    // Ignore first and second lines
+    fgets(line, SIZE, stream);
+    fgets(line, SIZE, stream);
+    // Field names
+    fgets(fields, SIZE, stream);
+    sprintf(fields, "Numero Estacion,Promedio %s", var);
+    write_file(fields, file_to_write);
+
+    int last_station_found = 30135; // First station
+
+    double sum = 0;
+    double count = 0;
+
+    while (fgets(line, SIZE, stream))
+    {
+        char* tmp = strdup(line);
+        char* field = (char*) getfield(tmp,1);
+
+        /*
+         * If we're still analyzing the same station, we add to the sum variable and increment the counter
+         */
+        if(last_station_found == atoi(field))
+        {
+          	tmp = strdup(line);
+        	char* variable_value = (char*) getfield(tmp,VARIABLE_INDEX);
+        	double value = 0;
+        	sscanf(variable_value, "%lf", &value);
+        	sum += value;
+        	count++;
+        }
+        else // If we found a new station, then we need to printf for the prevois one
+        {
+        	/*
+        	 * We write to file
+        	 */
+        	char line_out[SIZE];
+        	sprintf(line_out, "%d,%lf", last_station_found, sum/count);
+        	write_file(line_out, file_to_write);
+
+        	/*
+        	 * We reset the variables
+        	 */
+        	sum = 0;
+        	count = 0;
+        	last_station_found = atoi(field);
+        }
+        free(tmp);
+    }
+
+    /*
+     * We need to write the file for the last station (as the while was broken)
+     */
+    char line_out[SIZE];
+    sprintf(line_out, "%d,%lf", last_station_found, sum/count);
+    write_file(line_out, file_to_write);
+
+    send_file(file_to_write);
+    // Delete tmp file
+    unlink(file_to_write);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
