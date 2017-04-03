@@ -42,7 +42,7 @@ void create_socket_n(); // Non oriented to conection
  * functions to execute commands sent by client
  */
 void list();
-void download();
+void download(int);
 void daily();
 void monthly();
 void average(); 
@@ -51,7 +51,7 @@ void average();
  * Auxiliary functions
  */
 const char* getfield(char*, int);
-void write_file(char*);
+void write_file(char*, const char*);
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -219,6 +219,7 @@ void process_command(const char* buffer_in, char* buffer_out)
 	// If the client wants to disconnect, then we just exit.
 	if(!strcmp("disconnect", buffer_in))
 	{
+		write_file("holamijto lo amo", "puto.txt");
 		printf(" > Client wih PID %d disconnected\n", getpid());	
 		exit(1);
 	}
@@ -248,7 +249,7 @@ void process_command(const char* buffer_in, char* buffer_out)
 		int station = -1;
 		if(aux != NULL)
 		station = atoi(aux);
-
+		download(station);
 		printf(" > Recieved command <descargar> for station %d \n", station);	
 	}
 	else  if(!strcmp("diario_precipitacion", buffer))
@@ -283,6 +284,9 @@ void process_command(const char* buffer_in, char* buffer_out)
 	}
 	else
 	{
+		char file_to_write[SIZE];
+		sprintf(file_to_write, "tmp_download_station_%d_%d.txt", station_number, getpid());
+		remove((const char*) file_to_write);
 		printf(" > Unknown command recieved \n");
 		strcpy(buffer_out,"didn't get that dude");
 	}
@@ -297,20 +301,20 @@ void list()
 {
 	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
 
-    char line[1024];
-    char fields[1024];
+    char line[SIZE];
+    char fields[SIZE];
 
     // Ignore first and second lines
-    fgets(line, 1024, stream);
-    fgets(line, 1024, stream);
+    fgets(line, SIZE, stream);
+    fgets(line, SIZE, stream);
     // Field names
     fgets(fields, 1024, stream);
 
-    char last_station_found[128]= "rubbish";
+    char last_station_found[SIZE]= "rubbish";
 
     int n = write(c_new_client_socket, " Stations:", 1024);
 
-    while (fgets(line, 1024, stream))
+    while (fgets(line, SIZE, stream))
     {
         char* tmp = strdup(line);
         char* field = (char*) getfield(tmp,2);
@@ -320,11 +324,11 @@ void list()
          */
         if(strcmp(field, last_station_found))
         {
-          char line_to_write[1024] = "";
-          char aux[1024] = "";
+          char line_to_write[SIZE] = "";
+          char aux[SIZE] = "";
 
           strcpy(last_station_found, field);
-          char station_information[1024];
+          char station_information[SIZE];
           strcat(station_information, field);
 
           sprintf(aux, "   - %s", last_station_found);
@@ -349,10 +353,7 @@ void list()
             }
             i++;
           }
-        strcat(line_to_write, ")");
-        //int n = write(c_new_client_socket, line_to_write, 1024);
         n = n;
-        write_file(line_to_write);
         }
         free(tmp);
     }
@@ -361,9 +362,40 @@ void list()
 
 //-----------------------------------------------------------------------------------------------------------------
 
-void download()
+void download(int station_number)
 {
+	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
+	char file_to_write[SIZE];
+	sprintf(file_to_write, "tmp_download_station_%d_%d.txt", station_number, getpid());
 
+    char line[SIZE];
+    char fields[SIZE];
+
+    // Ignore first and second lines
+    fgets(line, SIZE, stream);
+    fgets(line, SIZE, stream);
+    // Field names (first line of file_to_write)
+    fgets(fields, SIZE, stream);
+    write_file(fields, file_to_write);
+
+    char station[SIZE];
+    sprintf(station, "%d", station_number);
+
+    while (fgets(line, SIZE, stream))
+    {
+        char* tmp = strdup(line);
+        // We get the first field of the line (the station number)
+        char* field = (char*) getfield(tmp,1);
+
+        if(!strcmp(field, station))
+        {
+        	line[strlen(line)-1] = '\0';
+        	write_file(line, file_to_write);
+        }
+    }
+
+    // send_file()
+    // remove_file()
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -393,22 +425,22 @@ void average()
  * @brief Recieves a line and writes it to file
  * @param line string to write to file
  */
-void write_file(char* line)
+void write_file(char* line, const char* file_name)
 {
     FILE *log = NULL;
 
     static int flag = 1;
     if (flag == 1)
     {
-      fclose(fopen("file.txt", "w"));
+      fclose(fopen(file_name, "w"));
       flag = 0;
     } 
 
-    log = fopen("file.txt", "a"); 
+    log = fopen(file_name, "a"); 
 
     if (log == NULL)
     {
-        printf("Error! can't open file.");
+        printf("Error! can't open file %s", file_name);
     }
     fprintf(log, "%s\n", line);
     fclose(log);
