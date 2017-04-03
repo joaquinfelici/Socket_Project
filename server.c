@@ -43,7 +43,7 @@ void create_socket_n(); // Non oriented to conection
  */
 void list();
 void download(int);
-void daily();
+void daily(int);
 void monthly();
 void average(); 
 
@@ -259,7 +259,7 @@ void process_command(const char* buffer_in, char* buffer_out)
 		int station = -1;
 		if(aux != NULL)
 		station = atoi(aux);
-
+		daily(station);
 		printf(" > Recieved command <diario_precipitacion> for station %d \n", station);	
 	}
 	else  if(!strcmp("mensual_precipitacion", buffer))
@@ -284,9 +284,6 @@ void process_command(const char* buffer_in, char* buffer_out)
 	}
 	else
 	{
-		char file_to_write[SIZE];
-		sprintf(file_to_write, "tmp_download_station_%d_%d.txt", station_number, getpid());
-		remove((const char*) file_to_write);
 		printf(" > Unknown command recieved \n");
 		strcpy(buffer_out,"didn't get that dude");
 	}
@@ -400,9 +397,87 @@ void download(int station_number)
 
 //-----------------------------------------------------------------------------------------------------------------
 
-void daily()
+void daily(int station_number)
 {
+	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
+	char file_to_write[SIZE];
+	sprintf(file_to_write, "tmp_daily_precipitacion_%d_%d.txt", station_number, getpid());
 
+    char line[SIZE];
+    char fields[SIZE];
+
+    // Ignore first and second lines
+    fgets(line, SIZE, stream);
+    fgets(line, SIZE, stream);
+    // Field names (first line of file_to_write)
+    fgets(fields, SIZE, stream);
+    sprintf(fields, "Numero Estacion,Fecha,Acumulacion precipitacion");
+    write_file(fields, file_to_write);
+
+    char station[SIZE];
+    sprintf(station, "%d", station_number);
+
+    int last_found_day = 1;
+    double sum = 0;
+
+    char previous_date[SIZE];
+
+    while (fgets(line, SIZE, stream))
+    {
+        char* tmp = strdup(line);
+        // We get the first field of the line (the station number)
+        char* field = (char*) getfield(tmp,1);
+
+        if(!strcmp(field, station))	// If we're in the write station
+        {
+        	line[strlen(line)-1] = '\0';
+
+        	// We get the first two chars of the date (for example '01' for day 01)
+        	tmp = strdup(line);
+        	char* date = (char*) getfield(tmp,4);
+        	char day[32];
+        	strncpy(day, date, 2);
+			day[2] = '\0';
+
+			if(last_found_day == 1) // Only the first time, let's save the date
+			{
+				char previous_date[SIZE];
+				strcpy(previous_date, date);
+			}
+
+			if(last_found_day == atoi(day)) // We're already on this day, let's keep adding
+			{
+				tmp = strdup(line);
+        		char* precipitacion = (char*) getfield(tmp,8);
+        		double p = 0;
+        		sscanf(precipitacion, "%lf", &p);
+        		sum += p;
+        		strcpy(previous_date, date);
+			}
+			else // We found a new day, let's write the last one to the file and reset the sum
+			{
+				char line_out[SIZE];
+				sprintf(line_out, "%d,%s,%lf", station_number, strtok(previous_date," "), sum);
+				write_file(line_out, file_to_write);
+				sum = 0;
+				last_found_day = atoi(day);
+
+				// We must keep in count the first time we found this day but adding it's precipitation
+				//char* precipitacion = (char*) getfield(tmp,8);
+        		//double p = 0;
+        		//sscanf(precipitacion, "%lf", &p);
+        		//sum += p;
+			}
+        }
+    }
+
+    // We must write the last day after we break the while
+    char line_out[SIZE];
+    sprintf(line_out, "%d,%s,%lf", station_number, strtok(previous_date," "), sum);
+	write_file(line_out, file_to_write);
+
+    // send_file()
+    // remove_file()
 }
 
 //-----------------------------------------------------------------------------------------------------------------
