@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 
 #define SIZE 1024
@@ -22,17 +23,24 @@
 #define password "felici\0"
 
 /*
- * Socket information
+ * Information for connection oriented socket
  */
 int c_server_socket, c_new_client_socket;
 struct sockaddr_in server_struct, client_struct;
-int port = 9000;
+int port = 6020;
 int client_length = sizeof(client_struct);
+
+/*
+ * Information for non-connection oriented socket
+ */
+int nc_server_socket;
+struct sockaddr_in nc_client_socket;
 
 /*
  * functions to establish and keep connection
  */
 void create_socket();
+void create_nc_socket();
 void listen_socket();
 void login();
 void process_command(const char*, char*);
@@ -44,14 +52,20 @@ void create_socket_n(); // Non oriented to conection
 void list();
 void download(int);
 void daily(int);
-void monthly();
+void monthly(int);
 void average(); 
+
+/*
+ * function to send the generated file
+ */
+void write_file(char*, const char*);
+void send_file(const char*);
 
 /*
  * Auxiliary functions
  */
 const char* getfield(char*, int);
-void write_file(char*, const char*);
+
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -115,13 +129,14 @@ void listen_socket()
 			*/
 
 			process_command((const char*) buffer_in, (char*) buffer_out);
-
+/*
 			n = write(c_new_client_socket, buffer_out, 100);
 			if ( n < 0 ) 
 			{
 				perror(" > Error while sendind data \n > Exiting \n");
 				exit(1);
 			}
+			*/
 			//printf(" > Data successfully sent: %s\n", buffer_out);
 			printf(" > Data successfully sent \n");
 		}
@@ -159,7 +174,6 @@ void login()
 	else
 	{
 		printf(" > Authentication for user <%s> failed \n", user);
-		n = write(c_new_client_socket, "refused", SIZE);
 		process_command("disconnect", NULL); // Force the disconnect.
 	}
 }
@@ -219,7 +233,6 @@ void process_command(const char* buffer_in, char* buffer_out)
 	// If the client wants to disconnect, then we just exit.
 	if(!strcmp("disconnect", buffer_in))
 	{
-		write_file("holamijto lo amo", "puto.txt");
 		printf(" > Client wih PID %d disconnected\n", getpid());	
 		exit(1);
 	}
@@ -238,8 +251,8 @@ void process_command(const char* buffer_in, char* buffer_out)
 
 	if(!strcmp("listar", buffer))
 	{
-		list();
 		printf(" > Recieved command <listar> \n");	
+		list();
 		strcpy(buffer_out, "");
 	}
 	else  if(!strcmp("descargar", buffer))
@@ -249,8 +262,8 @@ void process_command(const char* buffer_in, char* buffer_out)
 		int station = -1;
 		if(aux != NULL)
 		station = atoi(aux);
-		download(station);
 		printf(" > Recieved command <descargar> for station %d \n", station);	
+		download(station);	
 	}
 	else  if(!strcmp("diario_precipitacion", buffer))
 	{
@@ -259,8 +272,8 @@ void process_command(const char* buffer_in, char* buffer_out)
 		int station = -1;
 		if(aux != NULL)
 		station = atoi(aux);
-		daily(station);
-		printf(" > Recieved command <diario_precipitacion> for station %d \n", station);	
+		printf(" > Recieved command <diario_precipitacion> for station %d \n", station);
+		daily(station);		
 	}
 	else  if(!strcmp("mensual_precipitacion", buffer))
 	{
@@ -269,8 +282,8 @@ void process_command(const char* buffer_in, char* buffer_out)
 		int station = -1;
 		if(aux != NULL)
 		station = atoi(aux);
-
-		printf(" > Revieced command <mensual_precipitacion> for station %d \n", station);	
+		printf(" > Recieved command <mensual_precipitacion> for station %d \n", station);	
+		monthly(station);
 	}
 	else  if(!strcmp("promedio", buffer))
 	{
@@ -279,12 +292,13 @@ void process_command(const char* buffer_in, char* buffer_out)
 		char variable[SIZE];
 		if(aux != NULL)
 		strcpy(variable, aux);
-
-		printf(" > Recieved command <promedio> for variable <%s> \n", variable);	
+		printf(" > Recieved command <promedio> for variable <%s> \n", variable);
 	}
 	else
 	{
 		printf(" > Unknown command recieved \n");
+		int n = write(c_new_client_socket, "unknown", SIZE);
+		n = n;
 		strcpy(buffer_out,"didn't get that dude");
 	}
 }
@@ -298,6 +312,9 @@ void list()
 {
 	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
 
+	char file_to_write[SIZE];
+	sprintf(file_to_write, "tmp_list_%d.txt", getpid());
+
     char line[SIZE];
     char fields[SIZE];
 
@@ -309,7 +326,7 @@ void list()
 
     char last_station_found[SIZE]= "rubbish";
 
-    int n = write(c_new_client_socket, " Stations:", 1024);
+    //int n = write(c_new_client_socket, " Stations:", 1024);
 
     while (fgets(line, SIZE, stream))
     {
@@ -321,15 +338,17 @@ void list()
          */
         if(strcmp(field, last_station_found))
         {
-          char line_to_write[SIZE] = "";
+          //char line_to_write[SIZE] = "";
           char aux[SIZE] = "";
 
           strcpy(last_station_found, field);
           char station_information[SIZE];
           strcat(station_information, field);
 
-          sprintf(aux, "   - %s", last_station_found);
-          n = write(c_new_client_socket, aux, SIZE);
+          sprintf(aux, "%s", last_station_found);
+          write_file(aux, file_to_write);
+          //sprintf(aux, "   - %s", last_station_found);
+          //n = write(c_new_client_socket, aux, SIZE);
 
           int i = 5;
           while(i < 20) // We analyze all fields for this station
@@ -342,23 +361,31 @@ void list()
 	              char* t = strdup(fields);
 	              char* field_name = (char*) getfield(t,i);
 
-				  sprintf(aux, "       %s", field_name);
-	              n = write(c_new_client_socket, aux, SIZE);
+	              sprintf(aux, "  - %s", field_name);
+          		  write_file(aux, file_to_write);
+				  //sprintf(aux, "       %s", field_name);
+	              //n = write(c_new_client_socket, aux, SIZE);
 
-	              sprintf(aux, "%s - ", field_name);
-	              strcat(line_to_write, aux);              
+	              //sprintf(aux, "%s - ", field_name);
+	              //strcat(line_to_write, aux);              
             }
             i++;
           }
-        n = n;
         }
         free(tmp);
     }
-    n = write(c_new_client_socket, "end", SIZE);
+    //n = write(c_new_client_socket, "end", SIZE);
+    send_file(file_to_write);
+    // Delete tmp file
+    unlink(file_to_write);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
 
+/*
+ * @brief Generates a file with ALL the information for the specified station number
+ * @param station_number is the number of the station sent by the client
+ */
 void download(int station_number)
 {
 	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
@@ -391,12 +418,17 @@ void download(int station_number)
         }
     }
 
-    // send_file()
-    // remove_file()
+    send_file(file_to_write);
+    // Delete tmp file
+    unlink(file_to_write);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
 
+/*
+ * @brief Generates a file with the daily sumation of the "precipitacion" field for the specified station
+ * @param station_number is the number of the station sent by the client
+ */
 void daily(int station_number)
 {
 	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
@@ -476,19 +508,78 @@ void daily(int station_number)
     sprintf(line_out, "%d,%s,%lf", station_number, strtok(previous_date," "), sum);
 	write_file(line_out, file_to_write);
 
-    // send_file()
-    // remove_file()
+    send_file(file_to_write);
+    // Delete tmp file
+    unlink(file_to_write);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
 
-void monthly()
+/*
+ * @brief Generates a file with the monthly sumation of the "precipitacion" field for the specified station
+ * @detail We assume that the csv file will have data for only ONE month, not several
+ * @param station_number is the number of the station sent by the client
+ */
+void monthly(int station_number)
 {
+	FILE* stream = fopen("datos_meteorologicos_s.CSV", "r");
+	char file_to_write[SIZE];
+	sprintf(file_to_write, "tmp_monthly_precipitacion_%d_%d.txt", station_number, getpid());
 
+    char line[SIZE];
+    char fields[SIZE];
+
+    // Ignore first and second lines
+    fgets(line, SIZE, stream);
+    fgets(line, SIZE, stream);
+    // Field names (first line of file_to_write)
+    fgets(fields, SIZE, stream);
+    // We overwrite the fields
+    sprintf(fields, "Numero Estacion,Mes,Acumulacion precipitacion");
+    write_file(fields, file_to_write);
+
+    char station[SIZE];
+    sprintf(station, "%d", station_number);
+
+	int month = -1;
+    double sum = 0;
+
+    while (fgets(line, SIZE, stream))
+    {
+        char* tmp = strdup(line);
+        // We get the first field of the line (the station number)
+        char* field = (char*) getfield(tmp,1);
+
+        if(!strcmp(field, station))	// If we're in the write station
+        {
+         	// We save the current month
+        	tmp = strdup(line);
+        	char* date = (char*) getfield(tmp,4);
+        	date[5] = '\0';
+        	month = atoi(date+3);  	
+
+        	// We get the precipitation to add it to sum
+        	tmp = strdup(line);
+        	char* precipitacion = (char*) getfield(tmp,8);
+        	double p = 0;
+        	sscanf(precipitacion, "%lf", &p);
+        	sum += p;
+		}
+    }
+    char line_out[SIZE];
+    sprintf(line_out, "%d,%02d,%lf", station_number, month, sum);
+	write_file(line_out, file_to_write);
+
+    send_file(file_to_write);
+    // Delete tmp file
+    unlink(file_to_write);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
 
+/*
+ * @brief 
+ */
 void average()
 {
 
@@ -515,10 +606,138 @@ void write_file(char* line, const char* file_name)
 
     if (log == NULL)
     {
-        printf("Error! can't open file %s", file_name);
+        printf(" >  Error when opening file %s\n", file_name);
     }
     fprintf(log, "%s\n", line);
     fclose(log);
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+
+/*
+ * @brief Uses a non-connection oriented socket to send the specified file
+ * @param file_name name of the file to be sent
+ */
+void send_file(const char* file_name)
+{
+	/*
+	 * We establish the connection through a non-connection oriented socket
+	 */
+	create_nc_socket();
+
+	char buffer[SIZE];
+	int address_size = sizeof(nc_client_socket);
+	int n;
+
+	printf(" > Sending file %s\n", file_name);
+
+	/*
+	 * We open the file and send every line, one by one
+	 */
+	FILE *file = fopen(file_name, "r");
+	while(fgets(buffer, SIZE, file) != NULL)
+	{
+		// We send a single line
+		n = sendto(nc_server_socket, (void*) buffer, SIZE, 0, (struct sockaddr*) &nc_client_socket, sizeof(nc_client_socket));
+		if (n < 0) 
+		{
+			perror(" > Error while writing socket \n > Exiting\n");
+			exit(1);
+		}
+		// We clean the buffer
+		memset(buffer, '\0', sizeof(buffer));
+
+		// We wait for a ACK reply in order to keep sending
+		n = recvfrom(nc_server_socket, (void*) buffer, SIZE, 0, (struct sockaddr*) &nc_client_socket, (socklen_t*) &address_size);
+		if (n < 0) 
+		{
+			perror(" > Error while reading socket \n > Exiting\n");
+			exit(1);
+		}
+		memset(buffer, 0, SIZE);
+	}
+	fclose(file);
+
+	/*
+	 * We send a message to indicate the transfer has ended
+	 */
+	address_size = sizeof(nc_client_socket);
+	n = sendto(nc_server_socket, (void *)"end", 4, 0, (struct sockaddr*) &nc_client_socket, address_size);
+	if ( n < 0 ) 
+	{
+		perror(" > Error while writing socket \n >Exiting\n");
+		exit(1);
+	}
+
+	memset(buffer, 0, sizeof(buffer));
+	n = recvfrom(nc_server_socket, (void*) buffer, SIZE, 0, (struct sockaddr*) &nc_client_socket, (socklen_t*) &address_size);
+	if ( n < 0 ) 
+	{
+		perror(" > Error while reading socket \n > Exiting\n");
+		exit(1);
+	}
+	close(nc_server_socket);
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+
+/*
+ * @brief Creates a non-connection oriented socket 
+ */
+void create_nc_socket()
+{
+	//c_new_client_socket = socket(AF_INET, SOCK_STREAM, 0);
+	/*
+	 * We inform that the data is about to be sent
+	 */
+    int n = write(c_new_client_socket, "begin transfer", SIZE);
+	if (n < 0)
+	{
+		perror(" > Error while writing to socket \n > Exiting\n");
+		exit(1);
+    }
+	
+	/*
+	 * We ask the client to provide us with the port to make the transfer
+	 */				
+	char non_connection_port[16];
+	memset(non_connection_port, '\0', 16);
+	n = read(c_new_client_socket, non_connection_port, 15);
+	if ( n < 0 ) 
+	{
+		perror(" > Error while reading socket \n > Exiting\n");
+		exit(1);
+	}
+
+	int nc_port = atoi(non_connection_port);
+	//printf(" > File transfer for process %d is %d\n", getpid(), nc_port);					
+							
+	/*
+	 * Let's establish the connection with the recieved port
+	 */
+
+	//int tamano_direccion, n;
+	
+	nc_server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (nc_server_socket < 0) 
+	{
+		perror(" > Error while creating to socket \n > Exiting\n");
+		exit(1);
+	}
+
+	nc_client_socket.sin_family = AF_INET;
+	nc_client_socket.sin_port = htons(nc_port);
+
+	/*
+	 * We find the host
+	 */
+	//char host[INET_ADDRSTRLEN];
+	nc_client_socket.sin_addr = client_struct.sin_addr;
+	//inet_ntop(AF_INET, &(nc_client_socket.sin_addr), host, INET_ADDRSTRLEN);
+
+	printf(" > Ready to send file to process %d on port %d\n", getpid(), ntohs(nc_client_socket.sin_port));
+	memset(&(nc_client_socket.sin_zero), '\0', 8);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
