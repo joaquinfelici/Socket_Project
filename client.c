@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <time.h>
+#include <signal.h>
 #include <arpa/inet.h>
 
 #define BOLDRED "\033[1m\033[31m"  
@@ -54,15 +55,47 @@ void recieve_file();
  * Auxiliary functions
  */
 int random_number(int, int);
+void configure_segmentation_fault();
 
 //-----------------------------------------------------------------------------------------------------------------
 
 int main(int argc, char** argv)
 {
+	configure_segmentation_fault();
 	connection_data();
 	create_socket();
 	connection();
 	return 0;
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+
+/*
+ * @brief Handler for segmentation fault
+ * @detail Happens when user instroduces connect and then something that is not valid information
+ */
+void segfault_sigaction(int signal, siginfo_t *si, void *arg)
+{
+    printf(" > Connection information does not exist \n > Exiting \n");
+ 	exit(0);
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+
+/*
+ * @brief This function configures the SIGSEGV to capture a segmentation fault
+ * @detail When an incorrect command is introduced, capturing a segmentation fault
+ * is way cleaner than checking for null pointers 
+ */
+void configure_segmentation_fault()
+{
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sigemptyset(&sa.sa_mask);
+    sa.sa_sigaction = segfault_sigaction;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, NULL);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -74,7 +107,7 @@ void connection_data()
 {
 	printf(" > Client main started\n");
 
-	printf("Insert command: ");
+l:	printf("Insert command: ");
     fgets(in, SIZE, stdin);
 	in[strlen(in)-1] = '\0';
 
@@ -92,6 +125,7 @@ void connection_data()
 	{
 		printf(" > Unknown command, correct syntax: \n");
 		printf(" > connect username@ip:port \n");
+		goto l;
 	}
 }
 
@@ -163,7 +197,7 @@ void create_socket()
 	else
 	{
 		printf(" > Username or password is incorrect \n");
-		exit(1);
+		exit(0);
 	}
 }
 
@@ -210,7 +244,7 @@ void connection()
 				perror(" > Error while reading socket \n > Exiting \n");
 				exit(1);
 			}
-				printf(" > Recieved data: %s\n", buffer);
+				//printf(" > Recieved data: %s\n", buffer);
 
 			/*
 			 * If the server recognized the command, then it's asking for our port
@@ -227,7 +261,11 @@ void connection()
 				n = n;
 				
 				recieve_file();
-			}			
+			}	
+			else
+			{
+				printf(" > Unknown or incomplete command \n");
+			}		
 		}
 	}
 }
@@ -249,6 +287,8 @@ void recieve_file()
 	char file_to_write[SIZE];
 	sprintf(file_to_write, "recieved_file_%d.CSV", getpid());
 	file = fopen(file_to_write, "w");	
+
+	int line_count = 0;
 
 	printf("--------------------------------- begin -----------------------------------\n");
 
@@ -277,10 +317,12 @@ void recieve_file()
 			perror(" > Error while writing to socket \n > Exiting \n");
 			exit(1);
 		}
+		line_count++;
 	}
 
 	printf("---------------------------------- end ------------------------------------\n");
 	printf(" > Successfully recieved file %s\n", file_to_write);
+
 	fclose(file);
 	close(nc_client_socket);
 }		

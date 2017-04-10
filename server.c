@@ -174,6 +174,7 @@ void login()
 	else
 	{
 		printf(" > Authentication for user <%s> failed \n", user);
+		n = write(c_new_client_socket, "refused", SIZE);
 		process_command("disconnect", NULL); // Force the disconnect.
 	}
 }
@@ -406,6 +407,8 @@ void download(int station_number)
     char station[SIZE];
     sprintf(station, "%d", station_number);
 
+    int found = 0;
+
     while (fgets(line, SIZE, stream))
     {
         char* tmp = strdup(line);
@@ -414,14 +417,21 @@ void download(int station_number)
 
         if(!strcmp(field, station))
         {
+        	found = 1;
         	line[strlen(line)-1] = '\0';
         	write_file(line, file_to_write);
         }
     }
 
-    send_file(file_to_write);
-    // Delete tmp file
-    unlink(file_to_write);
+    if(found)
+    {
+    	send_file(file_to_write);
+    	// Delete tmp file
+    	unlink(file_to_write);
+    }
+    else
+    	write(c_new_client_socket, "unknown", SIZE);
+    
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -455,6 +465,8 @@ void daily(int station_number)
 
     char previous_date[SIZE];
 
+    int found = 0;
+
     while (fgets(line, SIZE, stream))
     {
         char* tmp = strdup(line);
@@ -463,6 +475,8 @@ void daily(int station_number)
 
         if(!strcmp(field, station))	// If we're in the write station
         {
+        	found = 1;
+
         	line[strlen(line)-1] = '\0';
 
         	// We get the first two chars of the date (for example '01' for day 01)
@@ -505,13 +519,21 @@ void daily(int station_number)
     }
 
     // We must write the last day after we break the while
-    char line_out[SIZE];
-    sprintf(line_out, "%d,%s,%lf", station_number, strtok(previous_date," "), sum);
-	write_file(line_out, file_to_write);
-
-    send_file(file_to_write);
-    // Delete tmp file
-    unlink(file_to_write);
+    if(last_found_day != 1)
+    {
+    	char line_out[SIZE];
+    	sprintf(line_out, "%d,%s,%lf", station_number, strtok(previous_date," "), sum);
+		write_file(line_out, file_to_write);
+    }
+   
+   	if(found)
+    {
+    	send_file(file_to_write);
+    	// Delete tmp file
+    	unlink(file_to_write);
+    }
+    else
+    	write(c_new_client_socket, "unknown", SIZE);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -545,6 +567,8 @@ void monthly(int station_number)
 	int month = -1;
     double sum = 0;
 
+    int found = 0;
+
     while (fgets(line, SIZE, stream))
     {
         char* tmp = strdup(line);
@@ -553,6 +577,8 @@ void monthly(int station_number)
 
         if(!strcmp(field, station))	// If we're in the write station
         {
+        	found = 1;
+        	
          	// We save the current month
         	tmp = strdup(line);
         	char* date = (char*) getfield(tmp,4);
@@ -569,11 +595,17 @@ void monthly(int station_number)
     }
     char line_out[SIZE];
     sprintf(line_out, "%d,%02d,%lf", station_number, month, sum);
-	write_file(line_out, file_to_write);
+    if(month != -1)
+		write_file(line_out, file_to_write);
 
-    send_file(file_to_write);
-    // Delete tmp file
-    unlink(file_to_write);
+    if(found)
+    {
+    	send_file(file_to_write);
+    	// Delete tmp file
+    	unlink(file_to_write);
+    }
+    else
+    	write(c_new_client_socket, "unknown", SIZE);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
